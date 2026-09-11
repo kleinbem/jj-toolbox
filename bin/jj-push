@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# jj-push — `jj git push`, wrapped with the one recovery step it doesn't do
+# itself. Any extra args are passed through to `jj git push` unchanged.
+#
+# `jj git push` already safety-checks like `git push --force-with-lease` —
+# it refuses if the remote moved since your last fetch, rather than
+# clobbering it. That's correct, but it leaves you to fetch, rebase, and
+# retry by hand. This does that once, automatically:
+#   1. advance the nearest bookmark to @ (in case you described without
+#      going through jj-save) — see lib.sh for why this isn't a bare
+#      `jj bookmark advance`
+#   2. jj git push
+#   3. on a "moved on the remote" rejection: jj git fetch, rebase onto
+#      trunk(), re-advance, retry the push exactly once
+set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+jj_advance_pushable >/dev/null 2>&1 || true
+
+out=$(jj git push "$@" 2>&1)
+status=$?
+printf '%s\n' "$out"
+
+[ "$status" -eq 0 ] && exit 0
+
+if printf '%s' "$out" | grep -qiE 'unexpectedly moved on the remote|stale info'; then
+    echo
+    echo "Remote diverged — fetching, rebasing onto trunk(), retrying once..."
+    jj git fetch || exit 1
+    jj rebase -d 'trunk()' || exit 1
+    jj_advance_pushable >/dev/null 2>&1 || true
+    jj git push "$@"
+else
+    exit "$status"
+fi
