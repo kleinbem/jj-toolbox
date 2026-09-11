@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# jj-save <message> — describe the working-copy commit, advance the nearest
+# bookmark to it, and start a new one. Runs against whatever jj repo you're
+# cwd'd into (jj itself finds the repo root), same as `jj describe`.
+#
+# Replaces hand-chaining:
+#   jj describe -m "<message>" && jj bookmark move <name> --to @ && jj new
+# with jj's own built-ins:
+#   jj commit  == jj describe + jj new
+#   jj bookmark advance == move whichever bookmark is closest to @ (no
+#     hardcoded bookmark name — works on main, a feature branch, whatever).
+set -euo pipefail
+msg="${1:?usage: jj-save <message>}"
+jj commit -m "$msg"
+jj bookmark advance
