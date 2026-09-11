@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# jj-ws-new [name] — create an isolated jj workspace for the repo you're
+# cwd'd into, rooted at trunk(). Gives a concurrent agent/session its own @
+# instead of sharing the primary checkout's — one session's `jj
+# new`/`abandon`/`undo`/`restore` otherwise silently discards or moves
+# whatever another session is holding on the same @.
+#
+# Lives at <repo>.ws/<name>/, a sibling of the repo root — clearly not the
+# repo itself, and outside any registry a fan-out tool might loop over.
+set -euo pipefail
+
+repo_root=$(jj root)
+name="${1:-ws-$(date +%H%M%S)-$RANDOM}"
+ws_root="${repo_root}.ws"
+ws_path="$ws_root/$name"
+
+mkdir -p "$ws_root"
+[ -e "$ws_path" ] && { echo "jj-ws-new: $ws_path already exists" >&2; exit 1; }
+
+jj workspace add "$ws_path" --name "$name" -r 'trunk()'
+
+if [ -f "$repo_root/.envrc" ]; then
+    cp "$repo_root/.envrc" "$ws_path/.envrc"
+    command -v direnv >/dev/null 2>&1 && (cd "$ws_path" && direnv allow >/dev/null 2>&1 || true)
+fi
+
+echo
+echo "Workspace '$name' ready — cd here and work:"
+echo "  cd $ws_path"

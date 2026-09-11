@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# jj-ws-gc [--hours N] — forget+delete workspaces (for the repo you're
+# cwd'd into) that are empty, undescribed, and older than N hours (default
+# 4), or whose directory is already gone. Never touches one with real
+# content, no matter its age.
+set -euo pipefail
+
+hours=4
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --hours) hours="${2:?}"; shift 2 ;;
+        *) echo "jj-ws-gc: unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
+
+reaped=0
+kept=0
+while IFS=$'\t' read -r wname wroot; do
+    [ -z "$wname" ] && continue
+    orphan=0
+    if [ -d "$wroot" ]; then
+        # Query from INSIDE the workspace to force a fresh snapshot first —
+        # see jj-ws-list for why a stale view from here risks reaping edits
+        # that were never actually snapshotted as empty.
+        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
+        desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description' 2>/dev/null)
+    else
+        orphan=1
+        empty=1
+        desc=""
+    fi
+    age_ok=0
+    if [ "$orphan" -eq 1 ] || [ -n "$(find "$wroot" -maxdepth 0 -mmin "+$((hours * 60))" 2>/dev/null)" ]; then
+        age_ok=1
+    fi
+    if [ "$orphan" -eq 1 ] || { [ "$empty" = "1" ] && [ -z "$desc" ] && [ "$age_ok" -eq 1 ]; }; then
+        jj workspace forget "$wname" >/dev/null 2>&1 || true
+        rm -rf "$wroot"
+        note=""
+        [ "$orphan" -eq 1 ] && note=" (dir was already gone)"
+        echo "reaped $wname$note"
+        reaped=$((reaped + 1))
+    else
+        kept=$((kept + 1))
+    fi
+done <<<"$lines"
+
+echo "GC done: $reaped reaped, $kept kept (has content, described, or too new)."

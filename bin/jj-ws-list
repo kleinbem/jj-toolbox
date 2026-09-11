@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# jj-ws-list — jj workspace list for the repo you're cwd'd into, plus each
+# workspace's @ state (empty / dirty-undescribed / described), which bare
+# `jj workspace list` doesn't show. Queried from INSIDE each workspace dir
+# to force a fresh snapshot — asking for "<name>@" from here would show a
+# possibly-stale view of whatever that workspace last happened to snapshot.
+set -euo pipefail
+
+lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
+
+if [ -z "$lines" ]; then
+    echo "No other workspaces for this repo."
+    exit 0
+fi
+
+rows=()
+while IFS=$'\t' read -r wname wroot; do
+    [ -z "$wname" ] && continue
+    if [ -d "$wroot" ]; then
+        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
+        desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description.first_line()' 2>/dev/null)
+    else
+        empty=1
+        desc=""
+    fi
+    if [ -n "$desc" ]; then
+        state="$desc"
+    elif [ "$empty" = "1" ]; then
+        state="empty"
+    else
+        state="dirty, undescribed"
+    fi
+    [ -d "$wroot" ] || state="(dir missing!)"
+    rows+=("$(printf '%s\t%s\t%s' "$wname" "$state" "$wroot")")
+done <<<"$lines"
+
+{
+    printf 'WORKSPACE\tSTATE\tDIR\n'
+    printf '%s\n' "${rows[@]}"
+} | column -t -s "$(printf '\t')"
