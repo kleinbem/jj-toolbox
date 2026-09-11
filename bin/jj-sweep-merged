@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# jj-sweep-merged — report which local bookmarks (other than trunk) are
+# already merged, so you know what's safe to `jj bookmark forget`. Read-only:
+# never deletes anything itself. Runs against whatever jj+git repo you're
+# cwd'd into, same as `jj log` — no fleet/repo-registry involved.
+#
+# Three detection methods, weakest signal last:
+#   1. ancestor-of-trunk        — plain/fast-forward merges
+#   2. commit-subject match     — squash-merges (GitHub's default squash
+#      message is "<original subject> (#N)", so the branch tip's own subject
+#      line shows up verbatim inside a trunk commit's subject)
+#   3. gh PR search by head ref — catches anything method 2 misses (e.g. an
+#      amended commit message); needs `gh` and a github.com origin remote
+#
+# Also flags `gh pr checkout` residue (refs/remotes/pr/* — gh's local
+# tracking convention, not a real branch), since that's always dead weight
+# regardless of merge status.
+set -euo pipefail
+
+git fetch origin --prune --quiet 2>/dev/null || true
+jj git import >/dev/null 2>&1 || true
+
+# Trunk isn't assumed to be named "main" — ask jj what trunk() actually
+# resolves to (respects any repo's revset-aliases."trunk()" override) and
+# fall back only if that comes up empty (e.g. never fetched yet).
+trunk=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
+trunk="${trunk:-main}"
+
+gh_repo=""
+if command -v gh >/dev/null 2>&1; then
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+    gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
+fi
+
+rows=()
+for b in $(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null | grep -vx "$trunk" || true); do
+    [ -z "$b" ] && continue
+    subject=$(git log -1 --format='%s' "$b" 2>/dev/null)
+    if git merge-base --is-ancestor "$b" "$trunk" 2>/dev/null; then
+        status="MERGED"; detail="ancestor of $trunk"
+    elif [ -n "$subject" ] && git log "$trunk" --format='%s' 2>/dev/null | grep -qF -- "$subject"; then
+        status="MERGED"; detail="squash-merged (subject match)"
+    elif [ -n "$gh_repo" ] && [ "$(gh pr list --repo "$gh_repo" --state merged --search "head:$b" --json number --jq 'length' 2>/dev/null)" != "0" ]; then
+        status="MERGED"; detail="merged PR found by head branch"
+    else
+        status="UNCLEAR"; detail="not an ancestor, no matching PR — review before touching"
+    fi
+    rows+=("$(printf '%s\t%s\t%s' "$b" "$status" "$detail")")
+done
+
+if ! git remote 2>/dev/null | grep -qx 'pr'; then
+    for prn in $(git for-each-ref --format='%(refname:short)' refs/remotes/pr 2>/dev/null | sed 's#^pr/##'); do
+        [ -z "$prn" ] && continue
+        rows+=("$(printf 'pr/%s\tRESIDUE\tgh pr checkout leftover, never a real branch' "$prn")")
+    done
+fi
+
+if [ ${#rows[@]} -eq 0 ]; then
+    echo "Nothing to sweep — repo is $trunk-only."
+    exit 0
+fi
+
+{
+    printf 'BRANCH\tSTATUS\tDETAIL\n'
+    printf '%s\n' "${rows[@]}"
+} | column -t -s "$(printf '\t')"
+
+echo
+echo "Read-only — nothing deleted. To clean up a flagged branch:"
+echo "  jj bookmark forget <name>                 # local cleanup"
+echo "  jj git push --deleted                     # only if it was ever pushed"
+echo "  git branch -r -D pr/<N> && jj git import   # for gh-pr-checkout residue"
