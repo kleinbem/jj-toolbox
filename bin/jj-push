@@ -15,19 +15,7 @@
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# jj has no `git push` subprocess to pass `-c` to — it talks to git over an
-# embedded backend that still resolves credential.helper from git config.
-# If that resolves to an interactive/device-flow helper (this fleet's
-# global ~/.gitconfig sets credential.helper=oauth, cached 1h) with an
-# expired cache, jj git push/fetch hangs waiting on a browser flow with no
-# way to signal it from here. Override it for this process only, the same
-# fix the fleet's push-all uses via `git -c credential.helper=...`.
-export GIT_CONFIG_COUNT=2
-export GIT_CONFIG_KEY_0=credential.helper
-export GIT_CONFIG_VALUE_0=
-export GIT_CONFIG_KEY_1=credential.helper
-export GIT_CONFIG_VALUE_1='!gh auth git-credential'
-
+jj_use_gh_credential_helper
 jj_advance_pushable >/dev/null 2>&1 || true
 
 out=$(jj git push "$@" 2>&1)

@@ -14,3 +14,19 @@ jj_advance_pushable() {
         --config 'revset-aliases."closest_pushable(to)"="heads(::to & mutable() & ~description(exact:\"\") & (~empty() | merges()))"' \
         bookmark advance "$@"
 }
+
+# jj has no `git push`/`git fetch` subprocess to pass `-c` to, but its git
+# backend still resolves credential.helper from git config. This fleet's
+# global ~/.gitconfig sets credential.helper=oauth (a device-flow helper,
+# cached 1h) which hangs `jj git push`/`jj git fetch` on a browser flow
+# once that cache expires. Call this before any jj command that talks to
+# a remote — it overrides credential.helper for this process only, the
+# same fix the fleet's own push-all/pull-all use via `git -c
+# credential.helper=...`.
+jj_use_gh_credential_helper() {
+    export GIT_CONFIG_COUNT=2
+    export GIT_CONFIG_KEY_0=credential.helper
+    export GIT_CONFIG_VALUE_0=
+    export GIT_CONFIG_KEY_1=credential.helper
+    export GIT_CONFIG_VALUE_1='!gh auth git-credential'
+}

@@ -15,7 +15,14 @@
 # Also flags `gh pr checkout` residue (refs/remotes/pr/* — gh's local
 # tracking convention, not a real branch), since that's always dead weight
 # regardless of merge status.
+#
+# --tsv: skip the pretty column-aligned table (and the trailing cleanup
+# hints) and print raw BRANCH\tSTATUS\tDETAIL rows instead — for a caller
+# (e.g. a fleet-wide aggregator) that wants the fields, not the formatting.
 set -euo pipefail
+
+tsv=0
+[ "${1:-}" = "--tsv" ] && tsv=1
 
 git fetch origin --prune --quiet 2>/dev/null || true
 jj git import >/dev/null 2>&1 || true
@@ -56,7 +63,12 @@ if ! git remote 2>/dev/null | grep -qx 'pr'; then
 fi
 
 if [ ${#rows[@]} -eq 0 ]; then
-    echo "Nothing to sweep — repo is $trunk-only."
+    [ "$tsv" -eq 0 ] && echo "Nothing to sweep — repo is $trunk-only."
+    exit 0
+fi
+
+if [ "$tsv" -eq 1 ]; then
+    printf '%s\n' "${rows[@]}"
     exit 0
 fi
 

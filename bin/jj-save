@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# jj-save <message> — describe the working-copy commit, advance the nearest
-# bookmark to it, and start a new one. Runs against whatever jj repo you're
-# cwd'd into (jj itself finds the repo root), same as `jj describe`.
+# jj-save [--author "Name <email>"] <message> — describe the working-copy
+# commit, advance the nearest bookmark to it, and start a new one. Runs
+# against whatever jj repo you're cwd'd into (jj itself finds the repo
+# root), same as `jj describe`.
 #
 # Replaces hand-chaining:
-#   jj describe -m "<message>" && jj bookmark move <name> --to @ && jj new
+#   jj describe -m "<message>" [--author "..."] && jj bookmark move <name> --to @ && jj new
 # with jj's own built-ins:
 #   jj commit  == jj describe + jj new
 #   jj bookmark advance == move whichever bookmark is closest to @ (no
@@ -14,6 +15,16 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-msg="${1:?usage: jj-save <message>}"
-jj commit -m "$msg"
+author=""
+if [ "${1:-}" = "--author" ]; then
+    author="${2:?}"
+    shift 2
+fi
+msg="${1:?usage: jj-save [--author \"Name <email>\"] <message>}"
+
+if [ -n "$author" ]; then
+    jj commit -m "$msg" --author "$author"
+else
+    jj commit -m "$msg"
+fi
 jj_advance_pushable

@@ -4,12 +4,19 @@
 # `jj workspace list` doesn't show. Queried from INSIDE each workspace dir
 # to force a fresh snapshot — asking for "<name>@" from here would show a
 # possibly-stale view of whatever that workspace last happened to snapshot.
+#
+# --tsv: skip the pretty column-aligned table and print raw
+# WORKSPACE\tSTATE\tDIR rows instead — for a caller (e.g. a fleet-wide
+# aggregator) that wants the fields, not the formatting.
 set -euo pipefail
+
+tsv=0
+[ "${1:-}" = "--tsv" ] && tsv=1
 
 lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
 
 if [ -z "$lines" ]; then
-    echo "No other workspaces for this repo."
+    [ "$tsv" -eq 0 ] && echo "No other workspaces for this repo."
     exit 0
 fi
 
@@ -33,6 +40,11 @@ while IFS=$'\t' read -r wname wroot; do
     [ -d "$wroot" ] || state="(dir missing!)"
     rows+=("$(printf '%s\t%s\t%s' "$wname" "$state" "$wroot")")
 done <<<"$lines"
+
+if [ "$tsv" -eq 1 ]; then
+    printf '%s\n' "${rows[@]}"
+    exit 0
+fi
 
 {
     printf 'WORKSPACE\tSTATE\tDIR\n'
