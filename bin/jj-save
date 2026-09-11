@@ -9,7 +9,13 @@
 #   jj commit  == jj describe + jj new
 #   jj bookmark advance == move whichever bookmark is closest to @ (no
 #     hardcoded bookmark name — works on main, a feature branch, whatever).
+#
+# `--to @-` matters: after `jj commit`, @ is the fresh empty child, not the
+# commit we just described. Advancing to bare @ (its default) would drag the
+# bookmark onto that empty commit — and since auto-snapshot rewrites @ in
+# place, the bookmark would then silently pick up whatever you type next,
+# before you ever "save" it. `@-` is the commit `jj commit` just finalized.
 set -euo pipefail
 msg="${1:?usage: jj-save <message>}"
 jj commit -m "$msg"
-jj bookmark advance
+jj bookmark advance --to @-
