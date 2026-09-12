@@ -5,25 +5,27 @@
 # way `git commit --amend -S` does. Runs against whatever jj+git repo
 # you're cwd'd into.
 #
-# Auto-advances trunk to @ first if @ is described and ahead, so a
-# just-described commit becomes visible to git before the signing pass.
+# Auto-advances trunk to the closest pushable ancestor of @ first (see
+# lib.sh's jj_advance_pushable — NOT a bare `bookmark move --to @`, which
+# can land on @ itself when it's a fresh empty commit rather than the
+# actual described work one commit back), so a just-described commit
+# becomes visible to git before the signing pass.
 #
 # Needs an attached git HEAD to rebase — jj-colocated repos frequently
 # leave it detached, so this force-attaches to trunk first (safe: after
-# the auto-advance above, jj's working copy == trunk == tree, so
+# the auto-advance above, jj's working copy tree matches trunk's, so
 # `checkout -f` can't discard anything real).
 #
 # Stashes any leftover untracked/dirty git-side state under a
 # session-unique marker before rebasing, and only ever pops that same
 # marker back — never a stash that predates this run.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 trunk=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
 trunk="${trunk:-main}"
 
-if [ -n "$(jj log -r "${trunk}..@" --no-graph -T 'description' 2>/dev/null)" ]; then
-    jj bookmark move "$trunk" --to @ >/dev/null 2>&1 || true
-fi
+jj_advance_pushable >/dev/null 2>&1 || true
 
 # A repo with no origin/$trunk yet (never pushed) makes `git log` fail
 # fatally under `set -e` — check the ref exists first rather than trying
