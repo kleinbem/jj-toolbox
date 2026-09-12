@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# jj-sign-unsigned — re-sign every unsigned commit ahead of origin (on the
+# trunk bookmark) via `git rebase --exec ...--amend -S`. `jj sign` isn't
+# used here because it doesn't reliably drive a hardware signing key the
+# way `git commit --amend -S` does. Runs against whatever jj+git repo
+# you're cwd'd into.
+#
+# Auto-advances trunk to @ first if @ is described and ahead, so a
+# just-described commit becomes visible to git before the signing pass.
+#
+# Needs an attached git HEAD to rebase — jj-colocated repos frequently
+# leave it detached, so this force-attaches to trunk first (safe: after
+# the auto-advance above, jj's working copy == trunk == tree, so
+# `checkout -f` can't discard anything real).
+#
+# Stashes any leftover untracked/dirty git-side state under a
+# session-unique marker before rebasing, and only ever pops that same
+# marker back — never a stash that predates this run.
+set -uo pipefail
+
+trunk=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
+trunk="${trunk:-main}"
+
+if [ -n "$(jj log -r "${trunk}..@" --no-graph -T 'description' 2>/dev/null)" ]; then
+    jj bookmark move "$trunk" --to @ >/dev/null 2>&1 || true
+fi
+
+# A repo with no origin/$trunk yet (never pushed) makes `git log` fail
+# fatally under `set -e` — check the ref exists first rather than trying
+# to recover after the fact.
+if git rev-parse -q --verify "origin/$trunk" >/dev/null 2>&1; then
+    unsigned=$(git log --format='%G?' "origin/$trunk..$trunk" 2>/dev/null | awk '$1 != "G" && $1 != ""' | wc -l)
+else
+    unsigned=0
+fi
+
+if [ "$unsigned" -eq 0 ]; then
+    echo "Nothing to sign — all ahead-of-origin commits already signed."
+    exit 0
+fi
+
+echo "Re-signing $unsigned commit(s) on $trunk..."
+
+head_ref=$(git symbolic-ref --quiet HEAD 2>/dev/null || true)
+if [ "$head_ref" != "refs/heads/$trunk" ]; then
+    git checkout -f "$trunk" >/dev/null 2>&1 || true
+fi
+
+# Marker-tagged stash — never pop a pre-existing stash from earlier work.
+stash_msg="auto-stash-sign-unsigned-$$-$(date +%s%N)"
+git stash push -u -m "$stash_msg" >/dev/null 2>&1 || true
+stash_ref=$(git stash list 2>/dev/null | grep -F "$stash_msg" | head -1 | cut -d: -f1)
+git checkout "$trunk" >/dev/null 2>&1 || true
+
+# shellcheck disable=SC2016 # single-quoted on purpose: this is a shell
+# fragment for git-rebase's spawned shell to expand, not us
+if git rebase --exec \
+    'if [ "$(git log -1 --format=%G?)" != "G" ]; then git commit --amend --no-edit -S; fi' \
+    "origin/$trunk"; then
+    if [ "$(git symbolic-ref --quiet HEAD 2>/dev/null)" = "refs/heads/$trunk" ]; then
+        jj git import >/dev/null 2>&1 && echo "$trunk at signed HEAD; jj bookmark synced"
+    else
+        git branch -f "$trunk" HEAD && git checkout "$trunk" >/dev/null 2>&1 && jj git import >/dev/null 2>&1 \
+            && echo "reattached $trunk + jj bookmark"
+    fi
+    [ -n "$stash_ref" ] && git stash pop "$stash_ref" >/dev/null 2>&1
+    exit 0
+else
+    [ -n "$stash_ref" ] && git stash pop "$stash_ref" >/dev/null 2>&1
+    echo "rebase failed — fix manually" >&2
+    exit 1
+fi
