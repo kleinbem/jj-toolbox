@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# jj-ahead — compact @ state (empty / undescribed / described) plus how
+# much work is ahead of trunk and whether it's ready to push, for the repo
+# you're cwd'd into. jj has no built-in one-liner for either of these.
+#
+# --tsv: skip the pretty column-aligned table and print raw
+# CHANGE\t@ STATE\tAHEAD rows instead — for a caller (e.g. a fleet-wide
+# aggregator) that wants the fields, not the formatting.
+set -euo pipefail
+
+tsv=0
+[ "${1:-}" = "--tsv" ] && tsv=1
+
+change=$(jj log -r @ --no-graph -T 'change_id.short()')
+empty=$(jj log -r @ --no-graph -T 'if(empty, "1", "0")')
+desc=$(jj log -r @ --no-graph -T 'description.first_line()')
+desc_short="${desc:0:60}"
+[ "${#desc}" -gt 60 ] && desc_short="${desc_short}…"
+
+if [ "$empty" = "1" ]; then
+    state="(empty)"
+elif [ -z "$desc" ]; then
+    state="UNDESCRIBED"
+else
+    state="$desc_short"
+fi
+
+# Ahead of trunk() rather than a hardcoded "main" — see jj-toolbox/CLAUDE.md.
+described_n=$(jj log -r 'trunk()..@ & ~empty()' --no-graph -T 'if(description, "1\n", "")' 2>/dev/null | grep -c . || true)
+undescribed_n=$(jj log -r 'trunk()..@ & ~empty()' --no-graph -T 'if(description, "", "1\n")' 2>/dev/null | grep -c . || true)
+
+if [ "$described_n" -eq 0 ] && [ "$undescribed_n" -eq 0 ]; then
+    ahead="none"
+elif [ "$undescribed_n" -eq 0 ]; then
+    ahead="$described_n ready"
+elif [ "$described_n" -eq 0 ]; then
+    ahead="$undescribed_n undescribed"
+else
+    ahead="$described_n ready, $undescribed_n undescribed"
+fi
+
+if [ "$tsv" -eq 1 ]; then
+    printf '%s\t%s\t%s\n' "$change" "$state" "$ahead"
+    exit 0
+fi
+
+{
+    printf 'CHANGE\t@ STATE\tAHEAD OF TRUNK\n'
+    printf '%s\t%s\t%s\n' "$change" "$state" "$ahead"
+} | column -t -s "$(printf '\t')"
