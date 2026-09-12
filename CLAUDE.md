@@ -59,11 +59,11 @@ mid-edit on a described-but-not-yet-`new`'d `@` (lands on `@` itself).
 ## How the `jj <name>` aliases actually get wired up
 
 Each script gets a matching alias via `jj util exec` — defined in
-**`nix-presets/git.nix`** (`programs.jujutsu.settings.aliases`, built by
+**`nix-presets/vcs.nix`** (`programs.jujutsu.settings.aliases`, built by
 the `jjToolboxTool` helper there), **not in this repo**. That means:
 
 1. Adding a new script here (`bin/jj-foo`) requires a matching
-   `foo = jjToolboxTool "foo";` line in `nix-presets/git.nix` before
+   `foo = jjToolboxTool "foo";` line in `nix-presets/vcs.nix` before
    `jj foo` exists as a command anywhere.
 2. `nix-config`'s `flake.lock` pins a specific `nix-presets` commit —
    after pushing the `nix-presets` change, bump it:
@@ -121,7 +121,7 @@ silently (no error, just misaligned/wrong fields) — check
    produces a table AND a fleet-wide aggregator might want it — see
    "Cross-repo coupling" above before finalizing the column layout.
 4. Test in a scratch repo.
-5. Add the alias to `nix-presets/git.nix` (`jjToolboxTool "<verb>"`).
+5. Add the alias to `nix-presets/vcs.nix` (`jjToolboxTool "<verb>"`).
 6. Update `README.md`'s table (user-facing: what it does) — this file is
    for conventions/gotchas, not a tool inventory.
 7. If `kleinbem/tools/jj-fleet.sh` should fan this out too, wire it there
