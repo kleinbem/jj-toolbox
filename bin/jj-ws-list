@@ -23,9 +23,19 @@ fi
 rows=()
 while IFS=$'\t' read -r wname wroot; do
     [ -z "$wname" ] && continue
+    stale=""
     if [ -d "$wroot" ]; then
-        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
-        desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description.first_line()' 2>/dev/null)
+        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null) || {
+            # Stale (its @ was rewritten from another workspace): jj won't
+            # run inside it, so show what it last snapshotted, from here.
+            stale=" (stale)"
+            empty=$(jj log -r "$wname@" --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
+        }
+        if [ -n "$stale" ]; then
+            desc=$(jj log -r "$wname@" --no-graph -T 'description.first_line()' 2>/dev/null)
+        else
+            desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description.first_line()' 2>/dev/null)
+        fi
     else
         empty=1
         desc=""
@@ -37,6 +47,7 @@ while IFS=$'\t' read -r wname wroot; do
     else
         state="dirty, undescribed"
     fi
+    state="$state$stale"
     [ -d "$wroot" ] || state="(dir missing!)"
     rows+=("$(printf '%s\t%s\t%s' "$wname" "$state" "$wroot")")
 done <<<"$lines"

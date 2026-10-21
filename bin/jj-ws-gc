@@ -1,17 +1,63 @@
 #!/usr/bin/env bash
-# jj-ws-gc [--hours N] — forget+delete workspaces (for the repo you're
-# cwd'd into) that are empty, undescribed, and older than N hours (default
-# 4), or whose directory is already gone. Never touches one with real
-# content, no matter its age.
+# jj-ws-gc [--hours N] [--dry-run] — forget+delete workspaces (for the repo
+# you're cwd'd into) that hold no work of their own any more, or whose
+# directory is already gone.
+#
+# A workspace is reaped when it's older than N hours (default 4) and:
+#   - its @ is empty and undescribed, and
+#   - every other commit between trunk and @ is on trunk already
+#     (ancestor, or squash-merged — its subject line shows up in trunk's
+#     history, same detection as jj-sweep-merged), and
+#   - no file on disk was edited after jj's last snapshot of it.
+# Empty, undescribed commits in between don't count as work.
+#
+# Stale workspaces (their @ rewritten from another workspace, so jj refuses
+# to run inside them) are judged from here via "<name>@" plus the
+# on-disk check above — jj's view of them is exactly what they last
+# snapshotted, and anything edited since is newer than that snapshot.
+#
+# Forgetting a workspace never deletes commits a bookmark still points at;
+# anything else it held stays recoverable through `jj op log`.
 set -euo pipefail
 
 hours=4
+dry=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --hours) hours="${2:?}"; shift 2 ;;
+        --dry-run) dry=1; shift ;;
         *) echo "jj-ws-gc: unknown argument: $1" >&2; exit 1 ;;
     esac
 done
+
+# A commit counts as merged when it's on trunk, or a trunk commit's subject
+# contains its own subject (GitHub's squash message is "<subject> (#N)").
+unmerged_count() {
+    local ws="$1" n=0 s esc
+    while IFS= read -r s; do
+        if [ -z "$s" ]; then
+            n=$((n + 1))
+            continue
+        fi
+        esc=$(printf '%s' "$s" | sed 's/[\\"]/\\&/g')
+        if [ -z "$(jj log -r "::trunk() & description(substring:\"$esc\")" -n 1 --no-graph -T '"y"' 2>/dev/null)" ]; then
+            n=$((n + 1))
+        fi
+    done < <(jj log -r "(trunk()..$ws@) ~ (empty() & description(exact:\"\"))" --no-graph \
+        -T 'description.first_line() ++ "\n"' 2>/dev/null)
+    echo "$n"
+}
+
+# Files changed on disk since jj last snapshotted this workspace.
+unsnapshotted() {
+    local root="$1" ts="$1/.jj/working_copy/tree_state"
+    [ -f "$ts" ] || { echo 1; return; }
+    if [ -n "$(find "$root" -path "$root/.jj" -prune -o -type f -newer "$ts" -print -quit 2>/dev/null)" ]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
 
 lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
 
@@ -20,31 +66,38 @@ kept=0
 while IFS=$'\t' read -r wname wroot; do
     [ -z "$wname" ] && continue
     orphan=0
-    if [ -d "$wroot" ]; then
-        # Query from INSIDE the workspace to force a fresh snapshot first —
-        # see jj-ws-list for why a stale view from here risks reaping edits
-        # that were never actually snapshotted as empty.
-        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
-        desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description' 2>/dev/null)
-    else
+    reap=0
+    if [ ! -d "$wroot" ]; then
         orphan=1
-        empty=1
-        desc=""
+        reap=1
+    else
+        # A fresh snapshot first where jj still allows it, so edits made
+        # since the last command are seen; stale workspaces refuse this.
+        (cd "$wroot" && jj log -r @ -n 1 --no-graph -T '""' >/dev/null 2>&1) || true
+        old=$(find "$wroot" -maxdepth 0 -mmin "+$((hours * 60))" 2>/dev/null)
+        at=$(jj log -r "$wname@" --no-graph -T 'if(empty && description == "", "clean", "work")' 2>/dev/null || echo work)
+        if [ -n "$old" ] && [ "$at" = "clean" ] \
+            && [ "$(unsnapshotted "$wroot")" = "0" ] \
+            && [ "$(unmerged_count "$wname")" = "0" ]; then
+            reap=1
+        fi
     fi
-    age_ok=0
-    if [ "$orphan" -eq 1 ] || [ -n "$(find "$wroot" -maxdepth 0 -mmin "+$((hours * 60))" 2>/dev/null)" ]; then
-        age_ok=1
-    fi
-    if [ "$orphan" -eq 1 ] || { [ "$empty" = "1" ] && [ -z "$desc" ] && [ "$age_ok" -eq 1 ]; }; then
-        jj workspace forget "$wname" >/dev/null 2>&1 || true
-        rm -rf "$wroot"
+    if [ "$reap" -eq 1 ]; then
         note=""
         [ "$orphan" -eq 1 ] && note=" (dir was already gone)"
-        echo "reaped $wname$note"
+        if [ "$dry" -eq 1 ]; then
+            echo "would reap $wname$note"
+        else
+            jj workspace forget "$wname" >/dev/null 2>&1 || true
+            rm -rf "$wroot"
+            echo "reaped $wname$note"
+        fi
         reaped=$((reaped + 1))
     else
         kept=$((kept + 1))
     fi
 done <<<"$lines"
 
-echo "GC done: $reaped reaped, $kept kept (has content, described, or too new)."
+verb="reaped"
+[ "$dry" -eq 1 ] && verb="to reap"
+echo "GC done: $reaped $verb, $kept kept (unmerged work, unsaved edits, or too new)."
