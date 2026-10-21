@@ -19,7 +19,7 @@ Put `bin/` on `PATH` to use these directly.
 | `jj-sweep-merged [--tsv]` | Read-only report of which local bookmarks are already merged and safe to forget |
 | `jj-ws-new [name]` | Create an isolated jj workspace at `<repo>.ws/<name>/`, for a concurrent agent/session |
 | `jj-ws-list [--tsv]` | List open workspaces for this repo plus each one's `@` state |
-| `jj-ws-gc [--hours N]` | Forget+delete workspaces that are empty, undescribed, and older than N hours (default 4) |
+| `jj-ws-gc [--hours N] [--dry-run]` | Forget+delete workspaces older than N hours (default 4) that hold no work of their own: `@` empty and undescribed, every commit between trunk and `@` already merged (also squash-merged), no unsaved edits on disk. Handles stale workspaces too |
 
 `--tsv` on the table-producing scripts prints raw tab-separated rows
 instead of the pretty `column -t` output — for a caller that wants the
