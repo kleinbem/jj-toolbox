@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# jj-pull — fetch from origin and rebase the working-copy change onto
-# trunk(). Runs against whatever jj repo you're cwd'd into.
+# jj-pull — fetch from origin, rebase the working-copy change onto trunk(),
+# then drop the local copies of changes that landed on trunk meanwhile
+# (jj-abandon-merged — squash-merged PRs leave their commits behind as
+# orphans otherwise). Runs against whatever jj repo you're cwd'd into.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -8,3 +10,4 @@ jj_use_gh_credential_helper
 
 jj git fetch || exit 1
 jj rebase -d 'trunk()'
+"$(dirname "${BASH_SOURCE[0]}")/jj-abandon-merged"

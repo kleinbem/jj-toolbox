@@ -105,7 +105,7 @@ cheap to blow away, unlike a real checkout.
 
 ## Cross-repo coupling — `--tsv` output is a parsed interface
 
-`jj-sweep-merged --tsv` and `jj-ws-list --tsv` print raw tab-separated
+`jj-sweep-merged --tsv`, `jj-ws-list --tsv` and `jj-abandon-merged --tsv` print raw tab-separated
 rows with a **fixed column order** that `kleinbem/tools/jj-fleet.sh`
 parses directly (`while IFS=$'\t' read -r ...`) to re-decorate with a
 REPO column for the fleet-wide dashboard. Changing a column's meaning,

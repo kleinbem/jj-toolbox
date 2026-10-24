@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
-# jj-ws-new [name] — create an isolated jj workspace for the repo you're
-# cwd'd into, rooted at trunk(). Gives a concurrent agent/session its own @
+# jj-ws-new [name] [-r <revset>] — create an isolated jj workspace for the
+# repo you're cwd'd into, rooted at trunk() (or -r). Gives a concurrent agent/session its own @
 # instead of sharing the primary checkout's — one session's `jj
 # new`/`abandon`/`undo`/`restore` otherwise silently discards or moves
 # whatever another session is holding on the same @.
 #
 # Lives at <repo>.ws/<name>/, a sibling of the repo root — clearly not the
 # repo itself, and outside any registry a fan-out tool might loop over.
+#
+# -r/--rev <revset>: start the workspace's @ on top of that change instead
+# of trunk() — e.g. to move work you already described in the primary
+# checkout into its own workspace: `jj-ws-new mywork -r <change-id>`, then
+# `jj new trunk()` in the primary to hand it back clean.
 set -euo pipefail
+
+rev='trunk()'
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -r|--rev) rev="${2:?}"; shift 2 ;;
+    *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]:-}"
 
 repo_root=$(jj root)
 name="${1:-ws-$(date +%H%M%S)-$RANDOM}"
@@ -17,7 +32,7 @@ ws_path="$ws_root/$name"
 mkdir -p "$ws_root"
 [ -e "$ws_path" ] && { echo "jj-ws-new: $ws_path already exists" >&2; exit 1; }
 
-jj workspace add "$ws_path" --name "$name" -r 'trunk()'
+jj workspace add "$ws_path" --name "$name" -r "$rev"
 
 if [ -f "$repo_root/.envrc" ]; then
     cp "$repo_root/.envrc" "$ws_path/.envrc"
