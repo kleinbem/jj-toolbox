@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# jj-abandon-merged [--dry-run] [--tsv] — abandon the local copies of
+# changes that already landed on trunk, for the repo you're cwd'd into.
+#
+# Squash-merging on GitHub leaves every local commit of a PR behind as a
+# mutable orphan: not an ancestor of trunk, so `jj log` keeps showing it and
+# nothing ever cleans it up. Multiply by a few parallel sessions and the repo
+# fills with dozens of "not in main" commits that are all already in main.
+# This drops exactly those, and nothing else, by proving each one first:
+#
+#   files==trunk    every file the commit touches has the same content on
+#                   trunk as in the commit (nothing would be lost)
+#   patch-in-trunk  `git cherry` finds an identical patch on trunk
+#   merged-pr-head  a local bookmark on the commit has a MERGED PR whose
+#                   head sha is exactly this commit (needs `gh` + a
+#                   github.com origin); every commit trunk..bookmark goes,
+#                   and the bookmark is forgotten
+#
+# Skipped on purpose: conflicted commits (nothing to compare), any
+# workspace's @ (live work), and anything the checks can't prove — those
+# stay for a human. Everything abandoned is recoverable via `jj op log`.
+#
+# --tsv prints raw REASON\tCOMMIT\tSUBJECT rows (no header, no summary) for
+# a fleet-wide caller.
+set -euo pipefail
+
+dry=0
+tsv=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --dry-run) dry=1; shift ;;
+    --tsv) tsv=1; shift ;;
+    *) echo "jj-abandon-merged: unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+trunk_sha=$(jj log -r 'trunk()' --no-graph -T 'commit_id' 2>/dev/null | head -1)
+[ -n "$trunk_sha" ] || { echo "jj-abandon-merged: trunk() is empty — fetch first" >&2; exit 1; }
+trunk_name=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
+trunk_name="${trunk_name:-main}"
+
+gh_repo=""
+if command -v gh >/dev/null 2>&1; then
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+    case "$remote_url" in
+    *github.com*) gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##') ;;
+    esac
+fi
+
+declare -A reason   # commit -> why it's safe
+order=()            # stable output order
+mark() {
+    [ -n "${reason[$1]:-}" ] && return
+    reason[$1]="$2"
+    order+=("$1")
+}
+
+# 1. Bookmarks whose merged PR head is exactly the bookmarked commit.
+declare -a forget_bookmarks=()
+if [ -n "$gh_repo" ]; then
+    while IFS=$'\t' read -r bname bsha; do
+        [ -z "$bname" ] || [ "$bname" = "$trunk_name" ] && continue
+        head=$(gh pr list --repo "$gh_repo" --state merged --head "$bname" --json headRefOid \
+            --jq '.[0].headRefOid // empty' 2>/dev/null || true)
+        [ -n "$head" ] && [ "$head" = "$bsha" ] || continue
+        forget_bookmarks+=("$bname")
+        while IFS= read -r c; do
+            [ -n "$c" ] && mark "$c" "merged-pr-head ($bname)"
+        done < <(jj log -r "(::$bsha ~ ::trunk()) & mutable() & ~empty() & ~conflicts()" --no-graph -T 'commit_id ++ "\n"' 2>/dev/null)
+    done < <(jj bookmark list -T 'if(!remote, name ++ "\t" ++ normal_target.commit_id() ++ "\n")' 2>/dev/null)
+fi
+
+# 2./3. Every other mutable, non-empty, non-conflicted commit that is nobody's @.
+while IFS=$'\t' read -r c wcs; do
+    [ -z "$c" ] && continue
+    [ -n "$wcs" ] && continue
+    [ -n "${reason[$c]:-}" ] && continue
+    files=$(git diff-tree --no-commit-id --name-only -r "$c" 2>/dev/null || true)
+    [ -n "$files" ] || continue
+    # shellcheck disable=SC2086 # file list is intentionally word-split
+    if git diff --quiet "$trunk_sha" "$c" -- $files 2>/dev/null; then
+        mark "$c" "files==trunk"
+    elif git cherry "$trunk_sha" "$c" "$c^" 2>/dev/null | grep -q '^-'; then
+        mark "$c" "patch-in-trunk"
+    fi
+done < <(jj log -r 'mutable() & ~empty() & ~conflicts()' --no-graph \
+    -T 'commit_id ++ "\t" ++ working_copies ++ "\n"' 2>/dev/null)
+
+if [ ${#order[@]} -eq 0 ]; then
+    [ "$tsv" -eq 0 ] && echo "Nothing to abandon — no local copy of a merged change found."
+    exit 0
+fi
+
+for c in "${order[@]}"; do
+    subject=$(jj log -r "$c" --no-graph -T 'description.first_line()' 2>/dev/null || true)
+    if [ "$tsv" -eq 1 ]; then
+        printf '%s\t%s\t%s\n' "${reason[$c]}" "${c:0:12}" "${subject:-(no description)}"
+    else
+        verb="abandon"; [ "$dry" -eq 1 ] && verb="would abandon"
+        printf '%s %s  %-28s %s\n' "$verb" "${c:0:12}" "${reason[$c]}" "${subject:-(no description)}"
+    fi
+done
+
+if [ "$dry" -eq 0 ]; then
+    jj abandon "${order[@]}" >/dev/null 2>&1 || { echo "jj-abandon-merged: jj abandon failed — nothing changed" >&2; exit 1; }
+    for b in "${forget_bookmarks[@]:-}"; do
+        [ -n "$b" ] && jj bookmark forget --include-remotes "$b" >/dev/null 2>&1 || true
+    done
+fi
+
+if [ "$tsv" -eq 0 ]; then
+    n=${#order[@]}
+    if [ "$dry" -eq 1 ]; then
+        echo "Dry run: $n commit(s) would be abandoned, ${#forget_bookmarks[@]} bookmark(s) forgotten."
+    else
+        echo "Abandoned $n commit(s) already on $trunk_name, forgot ${#forget_bookmarks[@]} bookmark(s). Undo: jj op undo"
+    fi
+fi
