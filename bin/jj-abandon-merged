@@ -62,7 +62,9 @@ if [ -n "$gh_repo" ]; then
         [ -z "$bname" ] || [ "$bname" = "$trunk_name" ] && continue
         head=$(gh pr list --repo "$gh_repo" --state merged --head "$bname" --json headRefOid \
             --jq '.[0].headRefOid // empty' 2>/dev/null || true)
-        [ -n "$head" ] && [ "$head" = "$bsha" ] || continue
+        if [ -z "$head" ] || [ "$head" != "$bsha" ]; then
+            continue
+        fi
         forget_bookmarks+=("$bname")
         while IFS= read -r c; do
             [ -n "$c" ] && mark "$c" "merged-pr-head ($bname)"
@@ -104,7 +106,9 @@ done
 if [ "$dry" -eq 0 ]; then
     jj abandon "${order[@]}" >/dev/null 2>&1 || { echo "jj-abandon-merged: jj abandon failed — nothing changed" >&2; exit 1; }
     for b in "${forget_bookmarks[@]:-}"; do
-        [ -n "$b" ] && jj bookmark forget --include-remotes "$b" >/dev/null 2>&1 || true
+        if [ -n "$b" ]; then
+            jj bookmark forget --include-remotes "$b" >/dev/null 2>&1 || true
+        fi
     done
 fi
 

@@ -36,7 +36,9 @@ jj workspace add "$ws_path" --name "$name" -r "$rev"
 
 if [ -f "$repo_root/.envrc" ]; then
     cp "$repo_root/.envrc" "$ws_path/.envrc"
-    command -v direnv >/dev/null 2>&1 && (cd "$ws_path" && direnv allow >/dev/null 2>&1 || true)
+    if command -v direnv >/dev/null 2>&1; then
+        (cd "$ws_path" && direnv allow >/dev/null 2>&1) || true
+    fi
 fi
 
 echo

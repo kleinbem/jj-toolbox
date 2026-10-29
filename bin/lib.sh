@@ -8,6 +8,7 @@
 # (described, non-empty) instead of bare @. Passed inline via --config on
 # every call so these tools work correctly regardless of the caller's own
 # jj config — no dependency on this being set up globally first.
+# shellcheck disable=SC2120
 jj_advance_pushable() {
     jj \
         --config 'revsets.bookmark-advance-to=closest_pushable(@)' \
