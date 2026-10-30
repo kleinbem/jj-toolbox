@@ -22,6 +22,7 @@
 # Forgetting a workspace never deletes commits a bookmark still points at;
 # anything else it held stays recoverable through `jj op log`.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 hours=4
 dry=0
@@ -33,25 +34,15 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-trunk_name=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
-trunk_name="${trunk_name:-main}"
+base_branch=$(jj_trunk_branch)
 
 gh_repo=""
-if command -v gh >/dev/null 2>&1; then
+if [ -n "$base_branch" ] && command -v gh >/dev/null 2>&1; then
     remote_url=$(git remote get-url origin 2>/dev/null || true)
     case "$remote_url" in
         *github.com*) gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##') ;;
     esac
 fi
-
-# Reads subject lines on stdin; succeeds when one is the subject $1 itself
-# or GitHub's squash form "$1 (#N)". A plain substring match would count a
-# short subject ("fix") as merged whenever any trunk subject contains it.
-subject_merged() {
-    S="$1" awk 'BEGIN { s = ENVIRON["S"]; n = length(s) }
-        $0 == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
-        END { exit !f }'
-}
 
 # Bookmarked commits between trunk and the workspace's @ that are the exact
 # head of a PR merged into trunk, as one revset ("none()" when there are none).
@@ -61,7 +52,7 @@ merged_heads() {
     [ -n "$gh_repo" ] || { echo "$heads"; return; }
     while IFS=$'\t' read -r bname bsha; do
         [ -n "$bname" ] || continue
-        if gh pr list --repo "$gh_repo" --state merged --base "$trunk_name" --head "$bname" \
+        if gh pr list --repo "$gh_repo" --state merged --base "$base_branch" --head "$bname" \
             --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null | grep -qx "$bsha"; then
             heads="$heads | $bsha"
         fi

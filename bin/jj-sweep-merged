@@ -20,6 +20,7 @@
 # hints) and print raw BRANCH\tSTATUS\tDETAIL rows instead — for a caller
 # (e.g. a fleet-wide aggregator) that wants the fields, not the formatting.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 tsv=0
 [ "${1:-}" = "--tsv" ] && tsv=1
@@ -38,15 +39,6 @@ if command -v gh >/dev/null 2>&1; then
     remote_url=$(git remote get-url origin 2>/dev/null || true)
     gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
 fi
-
-# Reads subject lines on stdin; succeeds when one is the subject $1 itself
-# or GitHub's squash form "$1 (#N)". A plain substring match would count a
-# short subject ("fix") as merged whenever any trunk subject contains it.
-subject_merged() {
-    S="$1" awk 'BEGIN { s = ENVIRON["S"]; n = length(s) }
-        $0 == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
-        END { exit !f }'
-}
 
 rows=()
 for b in $(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null | grep -vx "$trunk" || true); do

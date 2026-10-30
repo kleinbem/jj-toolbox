@@ -31,3 +31,34 @@ jj_use_gh_credential_helper() {
     export GIT_CONFIG_KEY_1=credential.helper
     export GIT_CONFIG_VALUE_1='!gh auth git-credential'
 }
+
+# Reads subject lines on stdin; succeeds when one is the subject $1 itself
+# or GitHub's squash form "$1 (#N)". A substring match would count a short
+# subject ("fix") as merged whenever any trunk subject contains it. The
+# concatenation with "" forces string comparison: awk compares number-like
+# strings numerically ("1.0" == "1.00").
+subject_merged() {
+    S="$1" awk 'BEGIN { s = ENVIRON["S"] ""; n = length(s) }
+        ($0 "") == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
+        END { exit !f }'
+}
+
+# The origin branch trunk() stands for, for GitHub's --base: the bookmark
+# named by a simple `revset-aliases."trunk()"` ("name" or "name@origin"),
+# else main, master or trunk on origin at the trunk() commit, as jj's
+# built-in alias picks it. Prints nothing when that isn't certain, so a
+# caller skips checks that need it rather than guessing another branch.
+jj_trunk_branch() {
+    local alias b
+    alias=$(jj config get 'revset-aliases."trunk()"' 2>/dev/null | tr -d '[:space:]')
+    if [[ "$alias" =~ ^([A-Za-z0-9._/-]+)(@origin)?$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return
+    fi
+    for b in main master trunk; do
+        if [ -n "$(jj log -r "trunk() & remote_bookmarks(exact:\"$b\", exact:\"origin\")" --no-graph -T '"y"' 2>/dev/null)" ]; then
+            echo "$b"
+            return
+        fi
+    done
+}
