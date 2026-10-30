@@ -60,11 +60,9 @@ declare -a forget_bookmarks=()
 if [ -n "$gh_repo" ]; then
     while IFS=$'\t' read -r bname bsha; do
         [ -z "$bname" ] || [ "$bname" = "$trunk_name" ] && continue
-        head=$(gh pr list --repo "$gh_repo" --state merged --head "$bname" --json headRefOid \
-            --jq '.[0].headRefOid // empty' 2>/dev/null || true)
-        if [ -z "$head" ] || [ "$head" != "$bsha" ]; then
-            continue
-        fi
+        # Merged into trunk, and any of the branch's merged PRs (names get reused).
+        gh pr list --repo "$gh_repo" --state merged --base "$trunk_name" --head "$bname" \
+            --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null | grep -qx "$bsha" || continue
         forget_bookmarks+=("$bname")
         while IFS= read -r c; do
             [ -n "$c" ] && mark "$c" "merged-pr-head ($bname)"

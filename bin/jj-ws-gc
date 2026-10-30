@@ -6,8 +6,8 @@
 # A workspace is reaped when it's older than N hours (default 4) and:
 #   - its @ is empty and undescribed, and
 #   - every other commit between trunk and @ is on trunk already
-#     (ancestor, or squash-merged — its subject line shows up in trunk's
-#     history, same detection as jj-sweep-merged; or below a bookmark
+#     (ancestor, or squash-merged — a trunk commit's subject is its
+#     subject or "<subject> (#N)", as in jj-sweep-merged; or below a bookmark
 #     whose merged GitHub PR has exactly that head, as in
 #     jj-abandon-merged, which catches multi-commit squash merges and
 #     needs no fetch), and
@@ -33,6 +33,9 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+trunk_name=$(jj log -r 'trunk()' --no-graph -T 'local_bookmarks.map(|b| b.name()).join("\n")' 2>/dev/null | head -1)
+trunk_name="${trunk_name:-main}"
+
 gh_repo=""
 if command -v gh >/dev/null 2>&1; then
     remote_url=$(git remote get-url origin 2>/dev/null || true)
@@ -41,16 +44,25 @@ if command -v gh >/dev/null 2>&1; then
     esac
 fi
 
+# Reads subject lines on stdin; succeeds when one is the subject $1 itself
+# or GitHub's squash form "$1 (#N)". A plain substring match would count a
+# short subject ("fix") as merged whenever any trunk subject contains it.
+subject_merged() {
+    S="$1" awk 'BEGIN { s = ENVIRON["S"]; n = length(s) }
+        $0 == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
+        END { exit !f }'
+}
+
 # Bookmarked commits between trunk and the workspace's @ that are the exact
-# head of a merged PR, as one revset ("none()" when there are none).
+# head of a PR merged into trunk, as one revset ("none()" when there are none).
+# A reused branch name can have several merged PRs; any of them may match.
 merged_heads() {
-    local ws="$1" heads="none()" bname bsha head
+    local ws="$1" heads="none()" bname bsha
     [ -n "$gh_repo" ] || { echo "$heads"; return; }
     while IFS=$'\t' read -r bname bsha; do
         [ -n "$bname" ] || continue
-        head=$(gh pr list --repo "$gh_repo" --state merged --head "$bname" --json headRefOid \
-            --jq '.[0].headRefOid // empty' 2>/dev/null || true)
-        if [ -n "$head" ] && [ "$head" = "$bsha" ]; then
+        if gh pr list --repo "$gh_repo" --state merged --base "$trunk_name" --head "$bname" \
+            --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null | grep -qx "$bsha"; then
             heads="$heads | $bsha"
         fi
     done < <(jj log -r "trunk()..$ws@" --no-graph \
@@ -58,8 +70,8 @@ merged_heads() {
     echo "$heads"
 }
 
-# A commit counts as merged when it's on trunk, a trunk commit's subject
-# contains its own subject (GitHub's squash message is "<subject> (#N)"),
+# A commit counts as merged when it's on trunk, a trunk commit has its
+# subject (as is, or GitHub's squash message "<subject> (#N)"),
 # or it's at or below the head of a merged PR.
 unmerged_count() {
     local ws="$1" n=0 c s esc heads
@@ -74,7 +86,8 @@ unmerged_count() {
             continue
         fi
         esc=$(printf '%s' "$s" | sed 's/[\\"]/\\&/g')
-        if [ -z "$(jj log -r "::trunk() & description(substring:\"$esc\")" -n 1 --no-graph -T '"y"' 2>/dev/null)" ]; then
+        if ! jj log -r "::trunk() & subject(substring:\"$esc\")" --no-graph \
+            -T 'description.first_line() ++ "\n"' 2>/dev/null | subject_merged "$s"; then
             n=$((n + 1))
         fi
     done < <(jj log -r "(trunk()..$ws@) ~ (empty() & description(exact:\"\"))" --no-graph \

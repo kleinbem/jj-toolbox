@@ -39,13 +39,22 @@ if command -v gh >/dev/null 2>&1; then
     gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
 fi
 
+# Reads subject lines on stdin; succeeds when one is the subject $1 itself
+# or GitHub's squash form "$1 (#N)". A plain substring match would count a
+# short subject ("fix") as merged whenever any trunk subject contains it.
+subject_merged() {
+    S="$1" awk 'BEGIN { s = ENVIRON["S"]; n = length(s) }
+        $0 == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
+        END { exit !f }'
+}
+
 rows=()
 for b in $(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null | grep -vx "$trunk" || true); do
     [ -z "$b" ] && continue
     subject=$(git log -1 --format='%s' "$b" 2>/dev/null)
     if git merge-base --is-ancestor "$b" "$trunk" 2>/dev/null; then
         status="MERGED"; detail="ancestor of $trunk"
-    elif [ -n "$subject" ] && git log "$trunk" --format='%s' 2>/dev/null | grep -qF -- "$subject"; then
+    elif [ -n "$subject" ] && git log "$trunk" --format='%s' 2>/dev/null | subject_merged "$subject"; then
         status="MERGED"; detail="squash-merged (subject match)"
     elif [ -n "$gh_repo" ] && [ "$(gh pr list --repo "$gh_repo" --state merged --search "head:$b" --json number --jq 'length' 2>/dev/null)" != "0" ]; then
         status="MERGED"; detail="merged PR found by head branch"
