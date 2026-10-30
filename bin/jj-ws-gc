@@ -7,7 +7,10 @@
 #   - its @ is empty and undescribed, and
 #   - every other commit between trunk and @ is on trunk already
 #     (ancestor, or squash-merged — its subject line shows up in trunk's
-#     history, same detection as jj-sweep-merged), and
+#     history, same detection as jj-sweep-merged; or below a bookmark
+#     whose merged GitHub PR has exactly that head, as in
+#     jj-abandon-merged, which catches multi-commit squash merges and
+#     needs no fetch), and
 #   - no file on disk was edited after jj's last snapshot of it.
 # Empty, undescribed commits in between don't count as work.
 #
@@ -30,11 +33,42 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# A commit counts as merged when it's on trunk, or a trunk commit's subject
-# contains its own subject (GitHub's squash message is "<subject> (#N)").
+gh_repo=""
+if command -v gh >/dev/null 2>&1; then
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+    case "$remote_url" in
+        *github.com*) gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##') ;;
+    esac
+fi
+
+# Bookmarked commits between trunk and the workspace's @ that are the exact
+# head of a merged PR, as one revset ("none()" when there are none).
+merged_heads() {
+    local ws="$1" heads="none()" bname bsha head
+    [ -n "$gh_repo" ] || { echo "$heads"; return; }
+    while IFS=$'\t' read -r bname bsha; do
+        [ -n "$bname" ] || continue
+        head=$(gh pr list --repo "$gh_repo" --state merged --head "$bname" --json headRefOid \
+            --jq '.[0].headRefOid // empty' 2>/dev/null || true)
+        if [ -n "$head" ] && [ "$head" = "$bsha" ]; then
+            heads="$heads | $bsha"
+        fi
+    done < <(jj log -r "trunk()..$ws@" --no-graph \
+        -T 'local_bookmarks.map(|b| b.name() ++ "\t" ++ commit_id ++ "\n").join("")' 2>/dev/null)
+    echo "$heads"
+}
+
+# A commit counts as merged when it's on trunk, a trunk commit's subject
+# contains its own subject (GitHub's squash message is "<subject> (#N)"),
+# or it's at or below the head of a merged PR.
 unmerged_count() {
-    local ws="$1" n=0 s esc
-    while IFS= read -r s; do
+    local ws="$1" n=0 c s esc heads
+    heads=$(merged_heads "$ws")
+    while IFS=$'\t' read -r c s; do
+        [ -n "$c" ] || continue
+        if [ -n "$(jj log -r "$c & ::($heads)" --no-graph -T '"y"' 2>/dev/null)" ]; then
+            continue
+        fi
         if [ -z "$s" ]; then
             n=$((n + 1))
             continue
@@ -44,7 +78,7 @@ unmerged_count() {
             n=$((n + 1))
         fi
     done < <(jj log -r "(trunk()..$ws@) ~ (empty() & description(exact:\"\"))" --no-graph \
-        -T 'description.first_line() ++ "\n"' 2>/dev/null)
+        -T 'commit_id ++ "\t" ++ description.first_line() ++ "\n"' 2>/dev/null)
     echo "$n"
 }
 
