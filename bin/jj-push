@@ -1,17 +1,8 @@
 #!/usr/bin/env bash
-# jj-push — `jj git push`, wrapped with the one recovery step it doesn't do
-# itself. Any extra args are passed through to `jj git push` unchanged.
-#
-# `jj git push` already safety-checks like `git push --force-with-lease` —
-# it refuses if the remote moved since your last fetch, rather than
-# clobbering it. That's correct, but it leaves you to fetch, rebase, and
-# retry by hand. This does that once, automatically:
-#   1. advance the nearest bookmark to @ (in case you described without
-#      going through jj-save) — see lib.sh for why this isn't a bare
-#      `jj bookmark advance`
-#   2. jj git push
-#   3. on a "moved on the remote" rejection: jj git fetch, rebase onto
-#      trunk(), re-advance, retry the push exactly once
+# jj-push [args...]: `jj git push` (args passed through) that recovers once
+# from a "moved on the remote" rejection by fetching, rebasing onto trunk(),
+# re-advancing the bookmark and retrying. The bookmark is advanced with
+# jj_advance_pushable first; see lib.sh for why not a bare `bookmark advance`.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

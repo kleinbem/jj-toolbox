@@ -1,27 +1,15 @@
 #!/usr/bin/env bash
-# jj-abandon-merged [--dry-run] [--tsv] — abandon the local copies of
-# changes that already landed on trunk, for the repo you're cwd'd into.
-#
-# Squash-merging on GitHub leaves every local commit of a PR behind as a
-# mutable orphan: not an ancestor of trunk, so `jj log` keeps showing it and
-# nothing ever cleans it up. Multiply by a few parallel sessions and the repo
-# fills with dozens of "not in main" commits that are all already in main.
-# This drops exactly those, and nothing else, by proving each one first:
-#
-#   files==trunk    every file the commit touches has the same content on
-#                   trunk as in the commit (nothing would be lost)
+# jj-abandon-merged [--dry-run] [--tsv]: abandon the local copies of changes
+# that already landed on trunk. Squash merges leave a PR's commits behind as
+# mutable orphans; each one goes only when one of these proves it:
+#   files==trunk    every file it touches has the same content on trunk
 #   patch-in-trunk  `git cherry` finds an identical patch on trunk
-#   merged-pr-head  a local bookmark on the commit has a MERGED PR whose
-#                   head sha is exactly this commit (needs `gh` + a
-#                   github.com origin); every commit trunk..bookmark goes,
-#                   and the bookmark is forgotten
-#
-# Skipped on purpose: conflicted commits (nothing to compare), any
-# workspace's @ (live work), and anything the checks can't prove — those
-# stay for a human. Everything abandoned is recoverable via `jj op log`.
-#
-# --tsv prints raw REASON\tCOMMIT\tSUBJECT rows (no header, no summary) for
-# a fleet-wide caller.
+#   merged-pr-head  a local bookmark on it is the exact head of a MERGED PR
+#                   (needs gh + a github.com origin); all of trunk..bookmark
+#                   goes and the bookmark is forgotten
+# Conflicted commits are never touched; the first two checks also skip any
+# workspace's @. Everything abandoned is recoverable via `jj op log`.
+# --tsv prints raw REASON\tCOMMIT\tSUBJECT rows for a fleet-wide caller.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

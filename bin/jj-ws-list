@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# jj-ws-list — jj workspace list for the repo you're cwd'd into, plus each
-# workspace's @ state (empty / dirty-undescribed / described), which bare
-# `jj workspace list` doesn't show. Queried from INSIDE each workspace dir
-# to force a fresh snapshot — asking for "<name>@" from here would show a
-# possibly-stale view of whatever that workspace last happened to snapshot.
-#
-# --tsv: skip the pretty column-aligned table and print raw
-# WORKSPACE\tSTATE\tDIR rows instead — for a caller (e.g. a fleet-wide
-# aggregator) that wants the fields, not the formatting.
+# jj-ws-list [--tsv]: `jj workspace list` plus each workspace's @ state.
+# Queried from inside each workspace dir to force a fresh snapshot; "<name>@"
+# from here would show what it last snapshotted.
+# --tsv prints raw WORKSPACE\tSTATE\tDIR rows for a fleet-wide caller.
 set -euo pipefail
 
 tsv=0
