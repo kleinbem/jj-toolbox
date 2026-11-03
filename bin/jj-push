@@ -15,6 +15,7 @@
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+jj_check_no_accidental_close || exit 1
 jj_use_gh_credential_helper
 jj_advance_pushable >/dev/null 2>&1 || true
 

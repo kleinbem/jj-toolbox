@@ -62,3 +62,49 @@ jj_trunk_branch() {
         fi
     done
 }
+
+# Refuse pushes where an unpushed commit message contains an issue-closing keyword
+# (fix, fixes, fixed, close, closes, closed, resolve, resolves, resolved)
+# immediately preceding an external repository link (e.g. Owner/repo#123 or
+# https://github.com/Owner/repo/issues/...). When such a commit reaches GitHub's
+# default branch, GitHub automatically closes that external issue or PR!
+# Override with JJ_ALLOW_EXTERNAL_CLOSE=1 if intentionally closing an external issue.
+jj_check_no_accidental_close() {
+    [ "${JJ_ALLOW_EXTERNAL_CLOSE:-0}" = "1" ] && return 0
+
+    local revset='mutable() & ~::remote_bookmarks() & ~description(exact:"")'
+    local commits
+    commits=$(jj log -r "$revset" --no-graph -T 'change_id.shortest() ++ " " ++ description ++ "\n"' 2>/dev/null || true)
+    [ -z "$commits" ] && return 0
+
+    local pattern='(^|[[:space:]\("'\''`])(fix|fixes|fixed|close|closes|closed|resolve|resolves|resolved)(:|[[:space:]]+)[^[:space:]]*[[:space:]]*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+|https://github\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+)'
+    local match
+    match=$(printf '%s\n' "$commits" | grep -iE "$pattern" || true)
+    [ -z "$match" ] && return 0
+
+    local remotes
+    remotes=$(jj git remote list 2>/dev/null | grep -oE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' || true)
+
+    local line
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        local target=""
+        if [[ "$line" =~ ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]+ ]]; then
+            target="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ https://github\.com/([^/]+/[^/]+)/(issues|pull)/[0-9]+ ]]; then
+            target="${BASH_REMATCH[1]}"
+        fi
+        target=$(echo "$target" | tr '[:upper:]' '[:lower:]')
+
+        if [ -n "$target" ] && ! echo "$remotes" | grep -qx "$target"; then
+            echo "❌ Refusing to push: commit contains an issue-closing keyword before an external repository reference:" >&2
+            echo "   $line" >&2
+            echo "   GitHub will automatically close $target when this commit reaches the default branch!" >&2
+            echo "   Change 'fix:'/'closes' to 'upstream:' (e.g. 'upstream: $target#...') before pushing." >&2
+            echo "   (Set JJ_ALLOW_EXTERNAL_CLOSE=1 to bypass if intentional.)" >&2
+            return 1
+        fi
+    done <<< "$match"
+
+    return 0
+}
