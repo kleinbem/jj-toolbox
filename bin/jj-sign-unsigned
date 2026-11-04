@@ -2,6 +2,7 @@
 # jj-sign-unsigned: re-sign every unsigned commit ahead of origin on the trunk
 # bookmark via `git rebase --exec ... --amend -S`, because `jj sign` doesn't
 # reliably drive a hardware signing key.
+# no-link: no matching upstream report found.
 # git rebase needs an attached HEAD, so this force-checks-out trunk first.
 # That's safe after jj_advance_pushable, since jj's working tree then matches
 # trunk. Leftover git-side state is stashed under a per-run marker, and only

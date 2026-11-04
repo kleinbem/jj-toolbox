@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# jj-ws-list [--tsv]: `jj workspace list` plus each workspace's @ state.
+# jj-ws-list [--tsv]: `jj workspace list` plus the @ state of each workspace
+# other than default.
 # Queried from inside each workspace dir to force a fresh snapshot; "<name>@"
 # from here would show what it last snapshotted.
 # --tsv prints raw WORKSPACE\tSTATE\tDIR rows for a fleet-wide caller.

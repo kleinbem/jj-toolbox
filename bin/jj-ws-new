@@ -2,8 +2,8 @@
 # jj-ws-new [name] [-r <revset>]: create a jj workspace at <repo>.ws/<name>/
 # on trunk() (or -r), so a concurrent session gets its own @. Sessions sharing
 # one @ silently discard or move each other's work on new/abandon/undo/restore.
-# To move work out of the primary checkout: `jj-ws-new mywork -r <change-id>`,
-# then `jj new trunk()` in the primary.
+# To move work out of the primary checkout, describe it, then
+# `jj-ws-new mywork -r <change-id>` and `jj new trunk()` in the primary.
 set -euo pipefail
 
 rev='trunk()'

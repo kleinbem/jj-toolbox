@@ -1,8 +1,9 @@
 # Shared helpers, sourced (not executed) by the jj-* scripts in this dir.
 
 # A bare `jj bookmark advance` can land on the empty child that `jj commit`
-# leaves as @. Advance to the closest pushable (described, non-empty) ancestor
-# instead, passed via --config so it works regardless of the caller's config.
+# leaves as @. Advance to the closest pushable (described, non-empty or merge)
+# ancestor instead, passed via --config so it works regardless of the caller's
+# config.
 # shellcheck disable=SC2120
 jj_advance_pushable() {
     jj \

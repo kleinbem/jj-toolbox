@@ -3,8 +3,9 @@
 # directory is gone, or that are older than N hours (default 4) and hold no
 # work: @ empty and undescribed, every commit between trunk and @ already
 # merged (ancestor, squash subject match, or at/below a merged PR's exact
-# head), and no file edited since jj's last snapshot. Stale workspaces are
-# judged from here via "<name>@" plus that on-disk check.
+# head; empty undescribed commits are skipped), and no file edited since
+# jj's last snapshot. Stale workspaces are judged from here via "<name>@"
+# plus that on-disk check.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

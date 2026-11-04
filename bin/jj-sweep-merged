@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # jj-sweep-merged [--tsv]: report which local bookmarks other than trunk are
-# already merged, so you know what's safe to `jj bookmark forget`. Read-only.
+# already merged, so you know what's safe to `jj bookmark forget`. It fetches
+# with --prune and imports, but never moves or deletes a local bookmark.
 # Merged means: an ancestor of trunk, or a trunk subject equal to the tip's
 # subject or GitHub's squash form "<subject> (#N)", or a merged PR found for
 # the branch with gh. Leftover `gh pr checkout` refs (refs/remotes/pr/*) are
