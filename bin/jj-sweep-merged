@@ -1,24 +1,11 @@
 #!/usr/bin/env bash
-# jj-sweep-merged — report which local bookmarks (other than trunk) are
-# already merged, so you know what's safe to `jj bookmark forget`. Read-only:
-# never deletes anything itself. Runs against whatever jj+git repo you're
-# cwd'd into, same as `jj log` — no fleet/repo-registry involved.
-#
-# Three detection methods, weakest signal last:
-#   1. ancestor-of-trunk        — plain/fast-forward merges
-#   2. commit-subject match     — squash-merges (GitHub's default squash
-#      message is "<original subject> (#N)", so the branch tip's own subject
-#      line shows up verbatim inside a trunk commit's subject)
-#   3. gh PR search by head ref — catches anything method 2 misses (e.g. an
-#      amended commit message); needs `gh` and a github.com origin remote
-#
-# Also flags `gh pr checkout` residue (refs/remotes/pr/* — gh's local
-# tracking convention, not a real branch), since that's always dead weight
-# regardless of merge status.
-#
-# --tsv: skip the pretty column-aligned table (and the trailing cleanup
-# hints) and print raw BRANCH\tSTATUS\tDETAIL rows instead — for a caller
-# (e.g. a fleet-wide aggregator) that wants the fields, not the formatting.
+# jj-sweep-merged [--tsv]: report which local bookmarks other than trunk are
+# already merged, so you know what's safe to `jj bookmark forget`. It fetches
+# with --prune and imports, but never moves or deletes a local bookmark.
+# Merged means: an ancestor of trunk, or a trunk subject equal to the tip's
+# subject or GitHub's squash form "<subject> (#N)", or a merged PR found for
+# the branch with gh. Leftover `gh pr checkout` refs (refs/remotes/pr/*) are
+# always flagged. --tsv prints raw BRANCH\tSTATUS\tDETAIL rows.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 

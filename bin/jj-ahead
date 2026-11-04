@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# jj-ahead — compact @ state (empty / undescribed / described) plus how
-# much work is ahead of trunk and whether it's ready to push, for the repo
-# you're cwd'd into. jj has no built-in one-liner for either of these.
-#
-# --tsv: skip the pretty column-aligned table and print raw
-# CHANGE\t@ STATE\tAHEAD rows instead — for a caller (e.g. a fleet-wide
-# aggregator) that wants the fields, not the formatting.
+# jj-ahead [--tsv]: @ state (empty / undescribed / described) plus how much
+# work is ahead of trunk and whether it's ready to push.
+# --tsv prints raw CHANGE\t@ STATE\tAHEAD rows for a fleet-wide caller.
 set -euo pipefail
 
 tsv=0
