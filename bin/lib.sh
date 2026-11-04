@@ -74,16 +74,21 @@ jj_check_no_accidental_close() {
 
     local revset='mutable() & ~::remote_bookmarks() & ~description(exact:"")'
     local commits
-    commits=$(jj log -r "$revset" --no-graph -T 'change_id.shortest() ++ " " ++ description ++ "\n"' 2>/dev/null || true)
+    if ! commits=$(jj log -r "$revset" --no-graph -T 'change_id.shortest() ++ " " ++ description ++ "\n"'); then
+        echo "⚠️  Could not list unpushed commits; skipping external-close check." >&2
+        return 0
+    fi
     [ -z "$commits" ] && return 0
 
     local pattern='(^|[[:space:]\("'\''`])(fix|fixes|fixed|close|closes|closed|resolve|resolves|resolved)(:|[[:space:]]+)[^[:space:]]*[[:space:]]*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+|https://github\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+)'
     local match
-    match=$(printf '%s\n' "$commits" | grep -iE "$pattern" || true)
+    match=$(printf '%s\n' "$commits" | grep -ioE "$pattern" || true)
     [ -z "$match" ] && return 0
 
     local remotes
-    remotes=$(jj git remote list 2>/dev/null | grep -oE '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?' | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' || true)
+    remotes=$(jj git remote list 2>/dev/null \
+        | sed -nE 's#^[^[:space:]]+[[:space:]]+((https?|ssh)://)?([^/@[:space:]]+@)?github\.com[:/]+([^/[:space:]]+/[^/[:space:]]+)/?$#\4#p' \
+        | sed 's/\.git$//' | tr '[:upper:]' '[:lower:]' || true)
 
     local line
     while IFS= read -r line; do
