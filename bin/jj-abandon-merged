@@ -5,10 +5,10 @@
 #   files==trunk    every file it touches has the same content on trunk
 #   patch-in-trunk  `git cherry` finds an identical patch on trunk
 #   merged-pr-head  a local bookmark on it is the exact head of a MERGED PR
-#                   (needs gh + a github.com origin); all of trunk..bookmark
-#                   goes and the bookmark is forgotten
-# Conflicted commits are never touched; the first two checks also skip any
-# workspace's @. Everything abandoned is recoverable via `jj op log`.
+#                   (needs gh + a github.com origin); trunk..bookmark goes,
+#                   except any workspace's @, and the bookmark is forgotten
+# Conflicted commits and any workspace's @ (live work) are never touched.
+# Everything abandoned is recoverable via `jj op log`.
 # --tsv prints raw REASON\tCOMMIT\tSUBJECT rows for a fleet-wide caller.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -57,7 +57,7 @@ if [ -n "$gh_repo" ]; then
         forget_bookmarks+=("$bname")
         while IFS= read -r c; do
             [ -n "$c" ] && mark "$c" "merged-pr-head ($bname)"
-        done < <(jj log -r "(::$bsha ~ ::trunk()) & mutable() & ~empty() & ~conflicts()" --no-graph -T 'commit_id ++ "\n"' 2>/dev/null)
+        done < <(jj log -r "(::$bsha ~ ::trunk()) & mutable() & ~empty() & ~conflicts() & ~working_copies()" --no-graph -T 'commit_id ++ "\n"' 2>/dev/null)
     done < <(jj bookmark list -T 'if(!remote, name ++ "\t" ++ normal_target.commit_id() ++ "\n")' 2>/dev/null)
 fi
 
