@@ -5,8 +5,8 @@
 #   files==trunk    every file it touches has the same content on trunk
 #   patch-in-trunk  `git cherry` finds an identical patch on trunk
 #   merged-pr-head  a local bookmark on it is the exact head of a MERGED PR
-#                   (needs gh + a github.com origin); all of trunk..bookmark
-#                   goes and the bookmark is forgotten
+#                   (needs gh + a github.com origin); trunk..bookmark goes,
+#                   except any workspace's @, and the bookmark is forgotten
 # Conflicted commits and any workspace's @ (live work) are never touched.
 # Everything abandoned is recoverable via `jj op log`.
 # --tsv prints raw REASON\tCOMMIT\tSUBJECT rows for a fleet-wide caller.
