@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared helpers, sourced (not executed) by the jj-* scripts in this dir.
 
 # A bare `jj bookmark advance` can land on the empty child that `jj commit`
