@@ -87,20 +87,20 @@ test without waiting for a rebuild:
 # Option A — invoke the script directly, skip the alias entirely:
 /path/to/jj-toolbox/bin/jj-foo <args>
 
-# Option B — actually exercise the alias, merge it into the real config
-# (JJ_CONFIG replaces config discovery wholesale, so start from the real
-# file or you'll lose signing/user settings):
-cat ~/.config/jj/config.toml > /tmp/test.toml
-cat >> /tmp/test.toml <<'EOF'
+# Option B — actually exercise the alias. JJ_CONFIG replaces config
+# discovery, so list the real file first (signing/user settings) and layer
+# the alias on top; jj merges the [aliases] tables. --config can't load aliases.
+alias_toml=$(mktemp --suffix=.toml)
+cat > "$alias_toml" <<'EOF'
 [aliases]
 foo = ["util", "exec", "--", "/path/to/jj-toolbox/bin/jj-foo"]
 EOF
-JJ_CONFIG=/tmp/test.toml jj foo <args>
-rm /tmp/test.toml
+JJ_CONFIG="$(jj config path --user):$alias_toml" jj foo <args>
+rm "$alias_toml"
 ```
 
-Always test in a scratch repo first (`mktemp -d && cd $_ && jj git init
---colocate`), especially for anything that touches bookmarks or history —
+Always test in a scratch repo first (`tmp=$(mktemp -d) && cd "$tmp" &&
+jj git init --colocate`), especially for anything that touches bookmarks or history —
 cheap to blow away, unlike a real checkout.
 
 ## Cross-repo coupling — `--tsv` output is a parsed interface
