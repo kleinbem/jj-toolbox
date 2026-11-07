@@ -70,10 +70,13 @@ while IFS=$'\t' read -r c wcs; do
     [ -z "$c" ] && continue
     [ -n "$wcs" ] && continue
     [ -n "${reason[$c]:-}" ] && continue
-    files=$(git diff-tree --no-commit-id --name-only -r "$c" 2>/dev/null || true)
-    [ -n "$files" ] || continue
-    # shellcheck disable=SC2086 # file list is intentionally word-split
-    if git diff --quiet "$trunk_sha" "$c" -- $files 2>/dev/null; then
+    # NUL-separated and literal: a split or quoted path matches nothing, and an
+    # empty diff would wrongly prove files==trunk.
+    files=()
+    while IFS= read -r -d '' f; do files+=("$f"); done \
+        < <(git diff-tree -z --no-commit-id --name-only -r "$c" 2>/dev/null || true)
+    [ ${#files[@]} -gt 0 ] || continue
+    if git --literal-pathspecs diff --quiet "$trunk_sha" "$c" -- "${files[@]}" 2>/dev/null; then
         mark "$c" "files==trunk"
     elif git cherry "$trunk_sha" "$c" "$c^" 2>/dev/null | grep -q '^-'; then
         mark "$c" "patch-in-trunk"

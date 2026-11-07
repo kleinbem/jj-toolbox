@@ -28,9 +28,10 @@ jj_use_gh_credential_helper() {
 # Reads subject lines on stdin; succeeds when one is $1 or GitHub's squash
 # form "$1 (#N)". No substring match, so a short subject like "fix" doesn't
 # count as merged. The `""` concat forces string comparison ("1.0" != "1.00").
+# Reads all input: an early exit SIGPIPEs the writer and fails under pipefail.
 subject_merged() {
     S="$1" awk 'BEGIN { s = ENVIRON["S"] ""; n = length(s) }
-        ($0 "") == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1; exit }
+        ($0 "") == s || (substr($0, 1, n + 3) == s " (#" && substr($0, n + 4) ~ /^[0-9]+\)$/) { f = 1 }
         END { exit !f }'
 }
 
