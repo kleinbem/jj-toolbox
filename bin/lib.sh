@@ -4,7 +4,7 @@
 # A bare `jj bookmark advance` can land on the empty child that `jj commit`
 # leaves as @. Advance to the closest pushable (described, non-empty or merge)
 # ancestor instead, passed via --config so it works regardless of the caller's
-# config.
+# config. no-link: jj's documented default target, not a bug.
 # shellcheck disable=SC2120
 jj_advance_pushable() {
     jj \
@@ -17,6 +17,7 @@ jj_advance_pushable() {
 # on a browser login once its 1h cache expires. jj's git backend still reads
 # credential.helper from git config, so override it to gh for this process.
 # Call before any jj command that talks to a remote.
+# no-link: local helper choice (git-credential-oauth), not an upstream bug.
 jj_use_gh_credential_helper() {
     export GIT_CONFIG_COUNT=2
     export GIT_CONFIG_KEY_0=credential.helper
