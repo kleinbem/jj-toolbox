@@ -90,12 +90,12 @@ test without waiting for a rebuild:
 # Option B — actually exercise the alias. JJ_CONFIG replaces config
 # discovery, so list the real file first (signing/user settings) and layer
 # the alias on top; jj merges the [aliases] tables. --config can't load aliases.
-alias_toml=$(mktemp --suffix=.toml)
+alias_toml=$(mktemp)
 cat > "$alias_toml" <<'EOF'
 [aliases]
 foo = ["util", "exec", "--", "/path/to/jj-toolbox/bin/jj-foo"]
 EOF
-JJ_CONFIG="$(jj config path --user):$alias_toml" jj foo <args>
+JJ_CONFIG="$(jj config path --user | paste -sd:):$alias_toml" jj foo <args>
 rm "$alias_toml"
 ```
 
