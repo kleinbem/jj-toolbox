@@ -5,9 +5,9 @@
 #   files==trunk    every file it touches has the same content on trunk
 #   patch-in-trunk  `git cherry` finds an identical patch on trunk
 #   merged-pr-head  a local bookmark on it is the exact head of a MERGED PR
-#                   (needs gh + a github.com origin); trunk..bookmark goes,
-#                   except any workspace's @, and the bookmark is forgotten
-# Conflicted commits and any workspace's @ (live work) are never touched.
+#                   (needs gh + a github.com origin); trunk..bookmark and the
+#                   bookmark go, skipped entirely if any workspace's @ is on it
+# Conflicted commits and live workspaces are never touched.
 # Everything abandoned is recoverable via `jj op log`.
 # --tsv prints raw REASON\tCOMMIT\tSUBJECT rows for a fleet-wide caller.
 set -euo pipefail
@@ -54,14 +54,18 @@ if [ -n "$gh_repo" ]; then
         # Merged into trunk, and any of the branch's merged PRs (names get reused).
         gh pr list --repo "$gh_repo" --state merged --base "$base_branch" --head "$bname" \
             --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null | grep -qx "$bsha" || continue
+        # Skip bookmark and its commits if any workspace's @ is on or above them (prevents live rebase/forget).
+        wc_hits=$(jj log -r "((::$bsha ~ ::trunk()) | $bsha::) & ::working_copies()" --no-graph -T 'commit_id' 2>/dev/null) \
+            || { echo "jj-abandon-merged: working-copy check failed for $bname, skipping" >&2; continue; }
+        [ -n "$wc_hits" ] && continue
         forget_bookmarks+=("$bname")
         while IFS= read -r c; do
             [ -n "$c" ] && mark "$c" "merged-pr-head ($bname)"
-        done < <(jj log -r "(::$bsha ~ ::trunk()) & mutable() & ~empty() & ~conflicts() & ~working_copies()" --no-graph -T 'commit_id ++ "\n"' 2>/dev/null)
+        done < <(jj log -r "(::$bsha ~ ::trunk()) & mutable() & ~empty() & ~conflicts()" --no-graph -T 'commit_id ++ "\n"' 2>/dev/null)
     done < <(jj bookmark list -T 'if(!remote, name ++ "\t" ++ normal_target.commit_id() ++ "\n")' 2>/dev/null)
 fi
 
-# 2./3. Every other mutable, non-empty, non-conflicted commit that is nobody's @.
+# 2./3. Every other mutable, non-empty, non-conflicted commit that is nobody's @ and not an ancestor of any workspace's @.
 while IFS=$'\t' read -r c wcs; do
     [ -z "$c" ] && continue
     [ -n "$wcs" ] && continue
@@ -74,7 +78,7 @@ while IFS=$'\t' read -r c wcs; do
     elif git cherry "$trunk_sha" "$c" "$c^" 2>/dev/null | grep -q '^-'; then
         mark "$c" "patch-in-trunk"
     fi
-done < <(jj log -r 'mutable() & ~empty() & ~conflicts()' --no-graph \
+done < <(jj log -r 'mutable() & ~empty() & ~conflicts() & ~(::working_copies() ~ working_copies())' --no-graph \
     -T 'commit_id ++ "\t" ++ working_copies ++ "\n"' 2>/dev/null)
 
 if [ ${#order[@]} -eq 0 ]; then
