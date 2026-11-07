@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# jj-ws-list [--tsv]: `jj workspace list` plus the @ state of each workspace
+# other than default.
+# Queried from inside each workspace dir to force a fresh snapshot; "<name>@"
+# from here would show what it last snapshotted.
+# --tsv prints raw WORKSPACE\tSTATE\tDIR rows for a fleet-wide caller.
+set -euo pipefail
+
+tsv=0
+[ "${1:-}" = "--tsv" ] && tsv=1
+
+lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
+
+if [ -z "$lines" ]; then
+    [ "$tsv" -eq 0 ] && echo "No other workspaces for this repo."
+    exit 0
+fi
+
+rows=()
+while IFS=$'\t' read -r wname wroot; do
+    [ -z "$wname" ] && continue
+    stale=""
+    if [ -d "$wroot" ]; then
+        empty=$(cd "$wroot" && jj log -r @ --no-graph -T 'if(empty, "1", "0")' 2>/dev/null) || {
+            # Stale (its @ was rewritten from another workspace): jj won't
+            # run inside it, so show what it last snapshotted, from here.
+            stale=" (stale)"
+            empty=$(jj log -r "$wname@" --no-graph -T 'if(empty, "1", "0")' 2>/dev/null)
+        }
+        if [ -n "$stale" ]; then
+            desc=$(jj log -r "$wname@" --no-graph -T 'description.first_line()' 2>/dev/null)
+        else
+            desc=$(cd "$wroot" && jj log -r @ --no-graph -T 'description.first_line()' 2>/dev/null)
+        fi
+    else
+        empty=1
+        desc=""
+    fi
+    if [ -n "$desc" ]; then
+        state="$desc"
+    elif [ "$empty" = "1" ]; then
+        state="empty"
+    else
+        state="dirty, undescribed"
+    fi
+    state="$state$stale"
+    [ -d "$wroot" ] || state="(dir missing!)"
+    rows+=("$(printf '%s\t%s\t%s' "$wname" "$state" "$wroot")")
+done <<<"$lines"
+
+if [ "$tsv" -eq 1 ]; then
+    printf '%s\n' "${rows[@]}"
+    exit 0
+fi
+
+{
+    printf 'WORKSPACE\tSTATE\tDIR\n'
+    printf '%s\n' "${rows[@]}"
+} | column -t -s "$(printf '\t')"

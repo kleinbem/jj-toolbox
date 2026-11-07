@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# jj-ws-gc [--hours N] [--dry-run]: forget and delete workspaces whose
+# directory is gone, or that are older than N hours (default 4) and hold no
+# work: @ empty and undescribed, every commit between trunk and @ already
+# merged (ancestor, squash subject match, or at/below a merged PR's exact
+# head; empty undescribed commits are skipped), and no file edited since
+# jj's last snapshot. Stale workspaces are judged from here via "<name>@"
+# plus that on-disk check.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+hours=4
+dry=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --hours) hours="${2:?}"; shift 2 ;;
+        --dry-run) dry=1; shift ;;
+        *) echo "jj-ws-gc: unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+base_branch=$(jj_trunk_branch)
+
+gh_repo=""
+if [ -n "$base_branch" ] && command -v gh >/dev/null 2>&1; then
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+    case "$remote_url" in
+        *github.com*) gh_repo=$(printf '%s' "$remote_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##') ;;
+    esac
+fi
+
+# Bookmarked commits between trunk and the workspace's @ that are the exact
+# head of a PR merged into trunk, as one revset ("none()" when there are none).
+# A reused branch name can have several merged PRs; any of them may match.
+merged_heads() {
+    local ws="$1" heads="none()" bname bsha
+    [ -n "$gh_repo" ] || { echo "$heads"; return; }
+    while IFS=$'\t' read -r bname bsha; do
+        [ -n "$bname" ] || continue
+        if gh pr list --repo "$gh_repo" --state merged --base "$base_branch" --head "$bname" \
+            --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null | grep -qx "$bsha"; then
+            heads="$heads | $bsha"
+        fi
+    done < <(jj log -r "trunk()..$ws@" --no-graph \
+        -T 'local_bookmarks.map(|b| b.name() ++ "\t" ++ commit_id ++ "\n").join("")' 2>/dev/null)
+    echo "$heads"
+}
+
+# A commit counts as merged when it's on trunk, a trunk commit has its
+# subject (as is, or GitHub's squash message "<subject> (#N)"),
+# or it's at or below the head of a merged PR.
+unmerged_count() {
+    local ws="$1" n=0 c s esc heads
+    heads=$(merged_heads "$ws")
+    while IFS=$'\t' read -r c s; do
+        [ -n "$c" ] || continue
+        if [ -n "$(jj log -r "$c & ::($heads)" --no-graph -T '"y"' 2>/dev/null)" ]; then
+            continue
+        fi
+        if [ -z "$s" ]; then
+            n=$((n + 1))
+            continue
+        fi
+        esc=$(printf '%s' "$s" | sed 's/[\\"]/\\&/g')
+        if ! jj log -r "::trunk() & subject(substring:\"$esc\")" --no-graph \
+            -T 'description.first_line() ++ "\n"' 2>/dev/null | subject_merged "$s"; then
+            n=$((n + 1))
+        fi
+    done < <(jj log -r "(trunk()..$ws@) ~ (empty() & description(exact:\"\"))" --no-graph \
+        -T 'commit_id ++ "\t" ++ description.first_line() ++ "\n"' 2>/dev/null)
+    echo "$n"
+}
+
+# Files changed on disk since jj last snapshotted this workspace.
+unsnapshotted() {
+    local root="$1" ts="$1/.jj/working_copy/tree_state"
+    [ -f "$ts" ] || { echo 1; return; }
+    if [ -n "$(find "$root" -path "$root/.jj" -prune -o -type f -newer "$ts" -print -quit 2>/dev/null)" ]; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+lines=$(jj workspace list -T 'name ++ "\t" ++ root ++ "\n"' 2>/dev/null | grep -v '^default	' || true)
+
+reaped=0
+kept=0
+while IFS=$'\t' read -r wname wroot; do
+    [ -z "$wname" ] && continue
+    orphan=0
+    reap=0
+    if [ ! -d "$wroot" ]; then
+        orphan=1
+        reap=1
+    else
+        # A fresh snapshot first where jj still allows it, so edits made
+        # since the last command are seen; stale workspaces refuse this.
+        (cd "$wroot" && jj log -r @ -n 1 --no-graph -T '""' >/dev/null 2>&1) || true
+        old=$(find "$wroot" -maxdepth 0 -mmin "+$((hours * 60))" 2>/dev/null)
+        at=$(jj log -r "$wname@" --no-graph -T 'if(empty && description == "", "clean", "work")' 2>/dev/null || echo work)
+        if [ -n "$old" ] && [ "$at" = "clean" ] \
+            && [ "$(unsnapshotted "$wroot")" = "0" ] \
+            && [ "$(unmerged_count "$wname")" = "0" ]; then
+            reap=1
+        fi
+    fi
+    if [ "$reap" -eq 1 ]; then
+        note=""
+        [ "$orphan" -eq 1 ] && note=" (dir was already gone)"
+        if [ "$dry" -eq 1 ]; then
+            echo "would reap $wname$note"
+        else
+            jj workspace forget "$wname" >/dev/null 2>&1 || true
+            rm -rf "$wroot"
+            echo "reaped $wname$note"
+        fi
+        reaped=$((reaped + 1))
+    else
+        kept=$((kept + 1))
+    fi
+done <<<"$lines"
+
+verb="reaped"
+[ "$dry" -eq 1 ] && verb="to reap"
+echo "GC done: $reaped $verb, $kept kept (unmerged work, unsaved edits, or too new)."

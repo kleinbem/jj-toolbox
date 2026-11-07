@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# jj-ws-new [name] [-r <revset>]: create a jj workspace at <repo>.ws/<name>/
+# on trunk() (or -r), so a concurrent session gets its own @. Sessions sharing
+# one @ silently discard or move each other's work on new/abandon/undo/restore.
+# To move work out of the primary checkout, describe it, then
+# `jj-ws-new mywork -r <change-id>` and `jj new trunk()` in the primary.
+set -euo pipefail
+
+rev='trunk()'
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+    -r|--rev) rev="${2:?}"; shift 2 ;;
+    *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]:-}"
+
+repo_root=$(jj root)
+name="${1:-ws-$(date +%H%M%S)-$RANDOM}"
+ws_root="${repo_root}.ws"
+ws_path="$ws_root/$name"
+
+mkdir -p "$ws_root"
+[ -e "$ws_path" ] && { echo "jj-ws-new: $ws_path already exists" >&2; exit 1; }
+
+jj workspace add "$ws_path" --name "$name" -r "$rev"
+
+if [ -f "$repo_root/.envrc" ]; then
+    cp "$repo_root/.envrc" "$ws_path/.envrc"
+    if command -v direnv >/dev/null 2>&1; then
+        (cd "$ws_path" && direnv allow >/dev/null 2>&1) || true
+    fi
+fi
+
+echo
+echo "Workspace '$name' ready — cd here and work:"
+echo "  cd $ws_path"

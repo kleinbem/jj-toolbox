@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# jj-save [--author "Name <email>"] <message>: `jj commit`, then advance the
+# nearest bookmark to the work just described (jj_advance_pushable; see
+# lib.sh for why not a bare `jj bookmark advance`).
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+author=""
+if [ "${1:-}" = "--author" ]; then
+    author="${2:?}"
+    shift 2
+fi
+msg="${1:?usage: jj-save [--author \"Name <email>\"] <message>}"
+
+if [ -n "$author" ]; then
+    jj commit -m "$msg" --author "$author"
+else
+    jj commit -m "$msg"
+fi
+jj_advance_pushable

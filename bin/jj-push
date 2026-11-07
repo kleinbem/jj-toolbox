@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# jj-push [args...]: `jj git push` (args passed through) that recovers once
+# from a "moved on the remote" rejection by fetching, rebasing onto trunk(),
+# re-advancing the bookmark and retrying. The bookmark is advanced with
+# jj_advance_pushable first; see lib.sh for why not a bare `bookmark advance`.
+set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+jj_check_no_accidental_close || exit 1
+jj_use_gh_credential_helper
+jj_advance_pushable >/dev/null 2>&1 || true
+
+out=$(jj git push "$@" 2>&1)
+status=$?
+printf '%s\n' "$out"
+
+[ "$status" -eq 0 ] && exit 0
+
+if printf '%s' "$out" | grep -qiE 'unexpectedly moved on the remote|stale info'; then
+    echo
+    echo "Remote diverged — fetching, rebasing onto trunk(), retrying once..."
+    jj git fetch || exit 1
+    jj rebase -d 'trunk()' || exit 1
+    jj_advance_pushable >/dev/null 2>&1 || true
+    jj git push "$@"
+else
+    exit "$status"
+fi
