@@ -26,9 +26,12 @@ mkdir -p "$ws_root"
 
 # Newer jj turns workspaces of colocated repos into git worktrees by default;
 # these are jj-only. Older jj has no flag and never colocates.
-colocate=()
-jj workspace add --help 2>/dev/null | grep -q -- --no-colocate && colocate=(--no-colocate)
-jj workspace add "${colocate[@]}" "$ws_path" --name "$name" -r "$rev"
+add_help=$(jj workspace add --help 2>/dev/null || true)
+if [[ $add_help == *--no-colocate* ]]; then
+    jj workspace add --no-colocate "$ws_path" --name "$name" -r "$rev"
+else
+    jj workspace add "$ws_path" --name "$name" -r "$rev"
+fi
 
 if [ -f "$repo_root/.envrc" ]; then
     cp "$repo_root/.envrc" "$ws_path/.envrc"
