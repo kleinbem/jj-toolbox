@@ -24,7 +24,14 @@ ws_path="$ws_root/$name"
 mkdir -p "$ws_root"
 [ -e "$ws_path" ] && { echo "jj-ws-new: $ws_path already exists" >&2; exit 1; }
 
-jj workspace add "$ws_path" --name "$name" -r "$rev"
+# Newer jj turns workspaces of colocated repos into git worktrees by default;
+# these are jj-only. Older jj has no flag and never colocates.
+add_help=$(jj workspace add --help 2>/dev/null || true)
+if [[ $add_help == *--no-colocate* ]]; then
+    jj workspace add --no-colocate "$ws_path" --name "$name" -r "$rev"
+else
+    jj workspace add "$ws_path" --name "$name" -r "$rev"
+fi
 
 if [ -f "$repo_root/.envrc" ]; then
     cp "$repo_root/.envrc" "$ws_path/.envrc"
